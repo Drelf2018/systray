@@ -1,5 +1,5 @@
+//go:build !windows
 // +build !windows
-// go:build !windows
 
 package systray
 
@@ -39,6 +39,12 @@ func SetTitle(title string) {
 // only available on Mac and Windows.
 func SetTooltip(tooltip string) {
 	C.setTooltip(C.CString(tooltip))
+}
+
+// SetOnLeftClick sets a callback to be invoked when the tray icon is left-clicked.
+// This is only supported on Windows; on macOS and Linux it does nothing.
+func SetOnLeftClick(callback func()) {
+	// do nothing
 }
 
 func addOrUpdateMenuItem(item *MenuItem) {

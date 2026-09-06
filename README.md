@@ -1,5 +1,21 @@
 # systray
 
+本仓库是 [getlantern/systray](https://github.com/getlantern/systray) 的一个分支，在原项目基础上做了个性化修改。
+
+## 相对上游的改动
+
+新增 `SetOnLeftClick(callback func())` ，为托盘图标设置左键点击回调。
+- 仅 Windows 生效；macOS 与 Linux 下为空实现。
+- 未设置回调时，左键点击回退为弹出菜单。
+
+```go
+systray.SetOnLeftClick(func() {
+    // 左键点击时执行，例如打开 / 切换主窗口
+})
+```
+
+---
+
 systray is a cross-platform Go library to place an icon and menu in the notification area.
 
 ## Features

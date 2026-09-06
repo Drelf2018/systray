@@ -1,3 +1,4 @@
+//go:build windows
 // +build windows
 
 package systray
@@ -243,6 +244,13 @@ func (t *winTray) setTooltip(src string) error {
 
 var wt winTray
 
+var (
+	// onLeftClick is the callback invoked when the tray icon is left-clicked.
+	// Only Windows makes use of it; the other platforms ignore it.
+	onLeftClick   func()
+	muOnLeftClick sync.RWMutex
+)
+
 // WindowProc callback function that processes messages sent to a window.
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ms633573(v=vs.85).aspx
 func (t *winTray) wndProc(hWnd windows.Handle, message uint32, wParam, lParam uintptr) (lResult uintptr) {
@@ -277,8 +285,17 @@ func (t *winTray) wndProc(hWnd windows.Handle, message uint32, wParam, lParam ui
 		systrayExit()
 	case t.wmSystrayMessage:
 		switch lParam {
-		case WM_RBUTTONUP, WM_LBUTTONUP:
+		case WM_RBUTTONUP:
 			t.showMenu()
+		case WM_LBUTTONUP:
+			muOnLeftClick.RLock()
+			fn := onLeftClick
+			muOnLeftClick.RUnlock()
+			if fn != nil {
+				fn()
+			} else {
+				t.showMenu()
+			}
 		}
 	case t.wmTaskbarCreated: // on explorer.exe restarts
 		t.muNID.Lock()
@@ -910,6 +927,16 @@ func SetTooltip(tooltip string) {
 // SetRemovalAllowed sets whether a user can remove the systray icon or not.
 // This is only supported on macOS.
 func SetRemovalAllowed(allowed bool) {
+}
+
+// SetOnLeftClick sets a callback to be invoked when the tray icon is left-clicked.
+// This is only supported on Windows; on macOS and Linux it does nothing.
+// If no callback is set, left-clicking falls back to showing the menu (the same
+// behaviour as right-clicking). It can be called from any goroutine.
+func SetOnLeftClick(callback func()) {
+	muOnLeftClick.Lock()
+	onLeftClick = callback
+	muOnLeftClick.Unlock()
 }
 
 func addOrUpdateMenuItem(item *MenuItem) {
