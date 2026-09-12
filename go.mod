@@ -3,10 +3,8 @@ module github.com/getlantern/systray
 go 1.13
 
 require (
+	github.com/biessek/golang-ico v0.0.0-20250805151044-6d8ea19fb761
 	github.com/getlantern/golog v0.0.0-20190830074920-4ef2e798c2d7
-	github.com/lxn/walk v0.0.0-20210112085537-c389da54e794
-	github.com/lxn/win v0.0.0-20210218163916-a377121e959e // indirect
-	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
+	github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 // indirect
 	golang.org/x/sys v0.1.0
-	gopkg.in/Knetic/govaluate.v3 v3.0.0 // indirect
 )

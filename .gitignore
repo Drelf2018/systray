@@ -1,5 +1,3 @@
-example/example
-webview_example/webview_example
 *~
 *.swp
 **/*.exe
@@ -9,4 +7,3 @@ Debug
 dll/systray_unsigned.dll
 out.txt
 .vs
-on_exit*.txt

@@ -4,17 +4,36 @@
 package systray
 
 import (
+	"bytes"
+	"image"
+	"image/color"
 	"io/ioutil"
+	"path/filepath"
 	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
 
+	ico "github.com/biessek/golang-ico"
 	"golang.org/x/sys/windows"
 )
 
-const iconFilePath = "example/icon/iconwin.ico"
+// testIcon generates a small solid-color .ico in memory, so the tests don't
+// depend on the example application's embedded icon.
+func testIcon(t *testing.T) []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 16; x++ {
+			img.Set(x, y, color.RGBA{255, 0, 0, 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := ico.Encode(&buf, img); err != nil {
+		t.Fatalf("encode test icon: %v", err)
+	}
+	return buf.Bytes()
+}
 
 func TestBaseWindowsTray(t *testing.T) {
 	systrayReady = func() {}
@@ -35,7 +54,11 @@ func TestBaseWindowsTray(t *testing.T) {
 		wt.wcex.unregister()
 	}()
 
-	if err := wt.setIcon(iconFilePath); err != nil {
+	iconPath := filepath.Join(t.TempDir(), "tray.ico")
+	if err := ioutil.WriteFile(iconPath, testIcon(t), 0644); err != nil {
+		t.Fatalf("write temp icon: %v", err)
+	}
+	if err := wt.setIcon(iconPath); err != nil {
 		t.Errorf("SetIcon failed: %s", err)
 	}
 
@@ -105,12 +128,9 @@ func TestBaseWindowsTray(t *testing.T) {
 }
 
 func TestWindowsRun(t *testing.T) {
+	iconBytes := testIcon(t)
 	onReady := func() {
-		b, err := ioutil.ReadFile(iconFilePath)
-		if err != nil {
-			t.Fatalf("Can't load icon file: %v", err)
-		}
-		SetIcon(b)
+		SetIcon(iconBytes)
 		SetTitle("Test title с кириллицей")
 
 		bSomeBtn := AddMenuItem("Йа кнопко", "")

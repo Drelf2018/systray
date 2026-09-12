@@ -50,31 +50,6 @@ See [![full API](https://pkg.go.dev/badge/github.com/getlantern/systray.svg)](ht
 
 Note: this package requires cgo, so make sure you set `CGO_ENABLED=1` before building.
 
-## Try the example app!
-
-Have go v1.12+ or higher installed? Here's an example to get started on macOS:
-
-```sh
-git clone https://github.com/getlantern/systray
-cd systray/example
-env GO111MODULE=on go build
-./example
-```
-
-On Windows, you should build like this:
-
-```
-env GO111MODULE=on go build -ldflags "-H=windowsgui"
-```
-
-Now look for *Awesome App* in your menu bar!
-
-![Awesome App screenshot](example/screenshot.png)
-
-## The Webview example
-
-The code under `webview_example` is to demostrate how it can co-exist with other UI elements. Note that the example doesn't work on macOS versions older than 10.15 Catalina.
-
 ## Platform notes
 
 ### Linux
@@ -93,8 +68,6 @@ when building. For example:
 ```
 go build -tags=legacy_appindicator
 ```
-
-To build `webview_example`, you also need to install `libwebkit2gtk-4.0-dev` and remove `webview_example/rsrc.syso` which is required on Windows.
 
 ### Windows
 
