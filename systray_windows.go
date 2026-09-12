@@ -1,10 +1,12 @@
 package systray
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"image"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	ico "github.com/biessek/golang-ico"
 	"golang.org/x/sys/windows"
 )
 
@@ -979,4 +982,24 @@ func hideMenuItem(item *MenuItem) {
 
 func showMenuItem(item *MenuItem) {
 	addOrUpdateMenuItem(item)
+}
+
+// nativeIconFormat reports whether data of the given format can be handed to the
+// Windows back-end as it is. Only .ico can: LoadImage reads no other image format
+// off disk.
+//
+// Handing an .ico over untouched has a second benefit: decoding and re-encoding
+// one would flatten it to a single entry, discarding any extra sizes the caller
+// packed into it.
+func nativeIconFormat(format string) bool {
+	return format == "ico"
+}
+
+// encodeIcon encodes img as the .ico the Windows back-end loads.
+func encodeIcon(img image.Image) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := ico.Encode(&buf, img); err != nil {
+		return nil, fmt.Errorf("convert to .ico: %w", err)
+	}
+	return buf.Bytes(), nil
 }

@@ -6,6 +6,10 @@ package systray
 import "C"
 
 import (
+	"bytes"
+	"fmt"
+	"image"
+	"image/png"
 	"unsafe"
 )
 
@@ -103,4 +107,23 @@ func systray_on_exit() {
 //export systray_menu_item_selected
 func systray_menu_item_selected(cID C.int) {
 	systrayMenuItemSelected(uint32(cID))
+}
+
+// nativeIconFormat reports whether data of the given format can be handed to the
+// native back-end as it is. PNG, JPEG and ICO all can.
+func nativeIconFormat(format string) bool {
+	switch format {
+	case "png", "jpeg", "ico":
+		return true
+	}
+	return false
+}
+
+// encodeIcon encodes img as PNG, the format every supported back-end reads.
+func encodeIcon(img image.Image) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, fmt.Errorf("convert to .png: %w", err)
+	}
+	return buf.Bytes(), nil
 }

@@ -4,12 +4,22 @@ Package systray is a cross-platform Go library to place an icon and menu in the 
 package systray
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"runtime"
 	"sync"
 	"sync/atomic"
 
+	svg "github.com/Drelf2018/exp/svg" // named import: init registers the format all the same, and DecodeSize is reachable
+	_ "github.com/biessek/golang-ico"  // registers the "ico" format with the image package
 	"github.com/getlantern/golog"
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/tiff"
+	_ "golang.org/x/image/webp"
 )
 
 var (
@@ -233,4 +243,81 @@ func systrayMenuItemSelected(id uint32) {
 	// in case no one waiting for the channel
 	default:
 	}
+}
+
+// iconSize is the size, in pixels, at which a vector icon is rasterized. Tray
+// icons are conventionally 32x32. Bitmaps are not resized to it: they arrive at
+// whatever size the caller chose, see decodeImage.
+const iconSize = 32
+
+// ToICON converts icon data into the form the platform back-end can load, so the
+// result can be handed straight to SetIcon.
+//
+// Data already in a format the back-end reads natively — .ico on Windows, and
+// .png, .jpeg or .ico elsewhere — is passed through untouched: it is not decoded,
+// re-encoded or resized on the way in. Anything else is decoded and re-encoded;
+// nativeIconFormat and encodeIcon spell out the per-platform rules.
+//
+// Input that is not a recognizable image is reported as an error rather than as a
+// partial icon.
+func ToICON(data []byte) ([]byte, error) {
+	format, err := iconFormat(data)
+	if err != nil {
+		return nil, fmt.Errorf("decode icon: %w", err)
+	}
+	if nativeIconFormat(format) {
+		return data, nil
+	}
+	img, err := decodeImage(data, format)
+	if err != nil {
+		return nil, fmt.Errorf("decode icon: %w", err)
+	}
+	out, err := encodeIcon(img)
+	if err != nil {
+		return nil, fmt.Errorf("icon: %w", err)
+	}
+	return out, nil
+}
+
+// iconFormat reports which format the image package recognizes data as, reading
+// no further than that format's header.
+//
+// Knowing the format up front is what lets ToICON skip the decode entirely for
+// data the back-end can already load, and what lets decodeImage draw an SVG
+// directly at iconSize.
+func iconFormat(data []byte) (string, error) {
+	_, format, err := image.DecodeConfig(bytes.NewReader(data))
+	return format, err
+}
+
+// decodeImage decodes data whose format is already known into an image.Image.
+//
+// SVG support is provided by github.com/Drelf2018/exp/svg, imported above. That
+// package owns everything this file used to do by hand: viewport sizing,
+// preserveAspectRatio, non-UTF-8 documents, and the oksvg quirks (definitions
+// written after the elements that reference them, percentage sizes, single
+// argument scale()).
+//
+// An SVG is rasterized straight at iconSize instead of at its intrinsic size and
+// then scaled down: the vector is drawn at the size it is wanted at, so there is no
+// intermediate bitmap (worst case 4096x4096, some 64MB) and no resample.
+//
+// That is only correct against github.com/Drelf2018/oksvg, the maintained successor
+// of oksvg which this module depends on through exp/svg. Upstream oksvg treats
+// stroke-width as device pixels and ignores the scale from viewBox to viewport:
+// drawing a 14-unit stroke straight into a 32x32 canvas yields a 14-pixel stroke —
+// 44% of the icon — and letters turn into blobs. The successor scales the stroke by
+// sqrt(|det|) of the transform, so drawing at iconSize comes out right. Do not move
+// back to upstream oksvg without restoring the intrinsic-size-plus-downscale path:
+// the icons would blob again.
+//
+// Bitmaps are decoded as they are: the caller picked their size, and a larger
+// source is what lets the platform scale a crisp icon on high-DPI displays rather
+// than enlarging a 32x32 one.
+func decodeImage(data []byte, format string) (image.Image, error) {
+	if format == "svg" {
+		return svg.DecodeSize(bytes.NewReader(data), iconSize, iconSize)
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	return img, err
 }
