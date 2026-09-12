@@ -10,21 +10,19 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"log/slog"
 	"runtime"
 	"sync"
 	"sync/atomic"
 
 	svg "github.com/Drelf2018/exp/svg" // named import: init registers the format all the same, and DecodeSize is reachable
 	_ "github.com/biessek/golang-ico"  // registers the "ico" format with the image package
-	"github.com/getlantern/golog"
 	_ "golang.org/x/image/bmp"
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
 )
 
 var (
-	log = golog.LoggerFor("systray")
-
 	systrayReady  func()
 	systrayExit   func()
 	menuItems     = make(map[uint32]*MenuItem)
@@ -33,6 +31,23 @@ var (
 	currentID = uint32(0)
 	quitOnce  sync.Once
 )
+
+// Logger is the logger systray writes to. It is optional: if nil, slog.Default()
+// is used.
+//
+// Set it before Run. Changing it while the tray is running is not safe.
+var Logger *slog.Logger
+
+// logError writes one error record: to Logger if it is set, otherwise to
+// slog.Default(). Resolving on every call, rather than capturing a logger once,
+// is what lets a caller's slog.SetDefault take effect no matter when it runs.
+func logError(msg string, args ...any) {
+	if Logger != nil {
+		Logger.Error(msg, args...)
+	} else {
+		slog.Error(msg, args...)
+	}
+}
 
 func init() {
 	runtime.LockOSThread()
@@ -235,7 +250,7 @@ func systrayMenuItemSelected(id uint32) {
 	item, ok := menuItems[id]
 	menuItemsLock.RUnlock()
 	if !ok {
-		log.Errorf("No menu item with ID %v", id)
+		logError("no menu item", "id", id)
 		return
 	}
 	select {
