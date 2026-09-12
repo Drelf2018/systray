@@ -1,13 +1,11 @@
-//go:build windows
-// +build windows
-
 package systray
 
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -849,8 +847,8 @@ func iconBytesToFilePath(iconBytes []byte) (string, error) {
 	dataHash := hex.EncodeToString(bh[:])
 	iconFilePath := filepath.Join(os.TempDir(), "systray_temp_icon_"+dataHash)
 
-	if _, err := os.Stat(iconFilePath); os.IsNotExist(err) {
-		if err := ioutil.WriteFile(iconFilePath, iconBytes, 0644); err != nil {
+	if _, err := os.Stat(iconFilePath); errors.Is(err, fs.ErrNotExist) {
+		if err := os.WriteFile(iconFilePath, iconBytes, 0644); err != nil {
 			return "", err
 		}
 	}

@@ -88,7 +88,7 @@ func Register(onReady func(), onExit func()) {
 		systrayReady = func() {}
 	} else {
 		// Run onReady on separate goroutine to avoid blocking event loop
-		readyCh := make(chan interface{})
+		readyCh := make(chan struct{})
 		go func() {
 			<-readyCh
 			onReady()

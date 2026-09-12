@@ -1,13 +1,10 @@
-//go:build windows
-// +build windows
-
 package systray
 
 import (
 	"bytes"
 	"image"
 	"image/color"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync/atomic"
@@ -55,7 +52,7 @@ func TestBaseWindowsTray(t *testing.T) {
 	}()
 
 	iconPath := filepath.Join(t.TempDir(), "tray.ico")
-	if err := ioutil.WriteFile(iconPath, testIcon(t), 0644); err != nil {
+	if err := os.WriteFile(iconPath, testIcon(t), 0644); err != nil {
 		t.Fatalf("write temp icon: %v", err)
 	}
 	if err := wt.setIcon(iconPath); err != nil {

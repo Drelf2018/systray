@@ -7,3 +7,6 @@ Debug
 dll/systray_unsigned.dll
 out.txt
 .vs
+# 本地桩文件：只为屏蔽 gopls 替「非 Windows + 无 cgo」配置体检时报出的
+# undefined，只留在本机，不参与版本库（见文件内的说明）
+systray_nocgo*.go
