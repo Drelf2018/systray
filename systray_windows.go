@@ -6,6 +6,7 @@ package systray
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -646,8 +647,15 @@ func (t *winTray) hideMenuItem(menuItemId, parentId uint32) error {
 		uintptr(menuItemId),
 		MF_BYCOMMAND,
 	)
-	if res == 0 && err.(syscall.Errno) != ERROR_SUCCESS {
-		return err
+	if res == 0 {
+		// RemoveMenu reports failure through its return value, but it does not
+		// always set the last error: a zero errno only means Windows left the
+		// value untouched, and reporting it would read "The operation completed
+		// successfully". Silence is not an option either, so name the item.
+		if errno, ok := err.(syscall.Errno); ok && errno != ERROR_SUCCESS {
+			return err
+		}
+		return fmt.Errorf("systray: hide menu item %d: no such item", menuItemId)
 	}
 	t.delFromVisibleItems(parentId, menuItemId)
 
