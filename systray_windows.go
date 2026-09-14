@@ -3,13 +3,11 @@ package systray
 import (
 	"bytes"
 	"crypto/md5"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"image"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"sort"
 	"sync"
 	"syscall"
@@ -94,21 +92,22 @@ const (
 	TPM_BOTTOMALIGN = 0x0020
 )
 
-// LoadImage
 const (
-	IMAGE_ICON      = 1          // Loads an icon
-	LR_LOADFROMFILE = 0x00000010 // Loads the stand-alone image from the file
-	LR_DEFAULTSIZE  = 0x00000040 // Loads default-size icon for windows(SM_CXICON x SM_CYICON) if cx, cy are set to zero
+	biRGB        = 0 // BI_RGB: uncompressed pixels, so alpha travels as part of them
+	dibRGBColors = 0 // DIB_RGB_COLORS
 )
 
 // Helpful sources: https://github.com/golang/exp/blob/master/shiny/driver/internal/win32
 
 var (
-	g32                     = windows.NewLazySystemDLL("Gdi32.dll")
-	pCreateCompatibleBitmap = g32.NewProc("CreateCompatibleBitmap")
-	pCreateCompatibleDC     = g32.NewProc("CreateCompatibleDC")
-	pDeleteDC               = g32.NewProc("DeleteDC")
-	pSelectObject           = g32.NewProc("SelectObject")
+	g32                 = windows.NewLazySystemDLL("Gdi32.dll")
+	pCreateCompatibleDC = g32.NewProc("CreateCompatibleDC")
+	pDeleteDC           = g32.NewProc("DeleteDC")
+	pSelectObject       = g32.NewProc("SelectObject")
+	pCreateDIBSection   = g32.NewProc("CreateDIBSection")
+	pDeleteObject       = g32.NewProc("DeleteObject")
+	pGetDIBits          = g32.NewProc("GetDIBits")
+	pGetObject          = g32.NewProc("GetObjectW")
 
 	k32              = windows.NewLazySystemDLL("Kernel32.dll")
 	pGetModuleHandle = k32.NewProc("GetModuleHandleW")
@@ -116,36 +115,37 @@ var (
 	s32              = windows.NewLazySystemDLL("Shell32.dll")
 	pShellNotifyIcon = s32.NewProc("Shell_NotifyIconW")
 
-	u32                    = windows.NewLazySystemDLL("User32.dll")
-	pCreateMenu            = u32.NewProc("CreateMenu")
-	pCreatePopupMenu       = u32.NewProc("CreatePopupMenu")
-	pCreateWindowEx        = u32.NewProc("CreateWindowExW")
-	pDefWindowProc         = u32.NewProc("DefWindowProcW")
-	pRemoveMenu            = u32.NewProc("RemoveMenu")
-	pDestroyWindow         = u32.NewProc("DestroyWindow")
-	pDispatchMessage       = u32.NewProc("DispatchMessageW")
-	pDrawIconEx            = u32.NewProc("DrawIconEx")
-	pGetCursorPos          = u32.NewProc("GetCursorPos")
-	pGetDC                 = u32.NewProc("GetDC")
-	pGetMessage            = u32.NewProc("GetMessageW")
-	pGetSystemMetrics      = u32.NewProc("GetSystemMetrics")
-	pInsertMenuItem        = u32.NewProc("InsertMenuItemW")
-	pLoadCursor            = u32.NewProc("LoadCursorW")
-	pLoadIcon              = u32.NewProc("LoadIconW")
-	pLoadImage             = u32.NewProc("LoadImageW")
-	pPostMessage           = u32.NewProc("PostMessageW")
-	pPostQuitMessage       = u32.NewProc("PostQuitMessage")
-	pRegisterClass         = u32.NewProc("RegisterClassExW")
-	pRegisterWindowMessage = u32.NewProc("RegisterWindowMessageW")
-	pReleaseDC             = u32.NewProc("ReleaseDC")
-	pSetForegroundWindow   = u32.NewProc("SetForegroundWindow")
-	pSetMenuInfo           = u32.NewProc("SetMenuInfo")
-	pSetMenuItemInfo       = u32.NewProc("SetMenuItemInfoW")
-	pShowWindow            = u32.NewProc("ShowWindow")
-	pTrackPopupMenu        = u32.NewProc("TrackPopupMenu")
-	pTranslateMessage      = u32.NewProc("TranslateMessage")
-	pUnregisterClass       = u32.NewProc("UnregisterClassW")
-	pUpdateWindow          = u32.NewProc("UpdateWindow")
+	u32                       = windows.NewLazySystemDLL("User32.dll")
+	pCreateMenu               = u32.NewProc("CreateMenu")
+	pCreatePopupMenu          = u32.NewProc("CreatePopupMenu")
+	pCreateWindowEx           = u32.NewProc("CreateWindowExW")
+	pDefWindowProc            = u32.NewProc("DefWindowProcW")
+	pRemoveMenu               = u32.NewProc("RemoveMenu")
+	pDestroyWindow            = u32.NewProc("DestroyWindow")
+	pDispatchMessage          = u32.NewProc("DispatchMessageW")
+	pDrawIconEx               = u32.NewProc("DrawIconEx")
+	pGetIconInfo              = u32.NewProc("GetIconInfo")
+	pGetCursorPos             = u32.NewProc("GetCursorPos")
+	pGetDC                    = u32.NewProc("GetDC")
+	pGetMessage               = u32.NewProc("GetMessageW")
+	pGetSystemMetrics         = u32.NewProc("GetSystemMetrics")
+	pInsertMenuItem           = u32.NewProc("InsertMenuItemW")
+	pLoadCursor               = u32.NewProc("LoadCursorW")
+	pLoadIcon                 = u32.NewProc("LoadIconW")
+	pCreateIconFromResourceEx = u32.NewProc("CreateIconFromResourceEx")
+	pPostMessage              = u32.NewProc("PostMessageW")
+	pPostQuitMessage          = u32.NewProc("PostQuitMessage")
+	pRegisterClass            = u32.NewProc("RegisterClassExW")
+	pRegisterWindowMessage    = u32.NewProc("RegisterWindowMessageW")
+	pReleaseDC                = u32.NewProc("ReleaseDC")
+	pSetForegroundWindow      = u32.NewProc("SetForegroundWindow")
+	pSetMenuInfo              = u32.NewProc("SetMenuInfo")
+	pSetMenuItemInfo          = u32.NewProc("SetMenuItemInfoW")
+	pShowWindow               = u32.NewProc("ShowWindow")
+	pTrackPopupMenu           = u32.NewProc("TrackPopupMenu")
+	pTranslateMessage         = u32.NewProc("TranslateMessage")
+	pUnregisterClass          = u32.NewProc("UnregisterClassW")
+	pUpdateWindow             = u32.NewProc("UpdateWindow")
 )
 
 // Contains window class information.
@@ -286,11 +286,10 @@ type winTray struct {
 	wmTaskbarCreated uint32
 }
 
-// Loads an image from file and shows it in tray.
+// Shows the given .ico bytes in the notification area.
 // Shell_NotifyIcon: https://msdn.microsoft.com/en-us/library/windows/desktop/bb762159(v=vs.85).aspx
-func (t *winTray) setIcon(src string) error {
-
-	h, err := t.loadIconFrom(src)
+func (t *winTray) setIcon(iconBytes []byte) error {
+	h, err := t.iconFromBytes(iconBytes)
 	if err != nil {
 		return err
 	}
@@ -754,62 +753,341 @@ func (t *winTray) getVisibleItemIndex(parent, val uint32) int {
 	return -1
 }
 
-// Loads an image from file to be shown in tray or menu item.
-// LoadImage: https://msdn.microsoft.com/en-us/library/windows/desktop/ms648045(v=vs.85).aspx
-func (t *winTray) loadIconFrom(src string) (windows.Handle, error) {
+// iconFromBytes returns the HICON for the given .ico bytes, building each
+// distinct icon once. Nothing touches the file system: CreateIconFromResourceEx
+// makes the icon from the bits the .ico file already holds.
+func (t *winTray) iconFromBytes(iconBytes []byte) (windows.Handle, error) {
+	key := iconCacheKey(iconBytes)
 
-	// Save and reuse handles of loaded images
 	t.muLoadedImages.RLock()
-	h, ok := t.loadedImages[src]
+	h, ok := t.loadedImages[key]
 	t.muLoadedImages.RUnlock()
-	if !ok {
-		srcPtr, err := windows.UTF16PtrFromString(src)
-		if err != nil {
-			return 0, err
-		}
-		res, _, err := pLoadImage.Call(
-			0,
-			uintptr(unsafe.Pointer(srcPtr)),
-			IMAGE_ICON,
-			0,
-			0,
-			LR_LOADFROMFILE|LR_DEFAULTSIZE,
-		)
-		if res == 0 {
-			return 0, err
-		}
-		h = windows.Handle(res)
-		t.muLoadedImages.Lock()
-		t.loadedImages[src] = h
-		t.muLoadedImages.Unlock()
+	if ok {
+		return h, nil
 	}
+
+	bits, w, h2, err := selectIconBits(iconBytes, iconSize())
+	if err != nil {
+		return 0, err
+	}
+
+	res, _, callErr := pCreateIconFromResourceEx.Call(
+		uintptr(unsafe.Pointer(&bits[0])),
+		uintptr(len(bits)),
+		1,          // fIcon: the bits describe an icon, not a cursor
+		0x00030000, // dwVer, the version every current .ico uses
+		uintptr(w),
+		uintptr(h2),
+		0, // LR_DEFAULTCOLOR
+	)
+	if res == 0 {
+		return 0, callError(callErr, "CreateIconFromResourceEx failed")
+	}
+
+	h = windows.Handle(res)
+	t.muLoadedImages.Lock()
+	t.loadedImages[key] = h
+	t.muLoadedImages.Unlock()
 	return h, nil
 }
 
+// iconCacheKey is the digest the loaded-icon cache is keyed on, so that the same
+// icon handed over twice is built only once.
+func iconCacheKey(iconBytes []byte) string {
+	sum := md5.Sum(iconBytes)
+	return hex.EncodeToString(sum[:])
+}
+
+// selectIconBits parses an .ico file and returns the bits of the entry that fits
+// the requested size, along with that entry's dimensions.
+//
+// The .ico directory has the same layout as an RT_GROUP_ICON resource: a six
+// byte header followed by sixteen byte entries, each naming an offset and a
+// length. CreateIconFromResourceEx wants a DWORD-aligned buffer and an .ico
+// offset is not guaranteed to be aligned, so the chosen bits are copied out.
+func selectIconBits(iconBytes []byte, target int) ([]byte, int, int, error) {
+	var (
+		headerLen = 6
+		entryLen  = 16
+	)
+	if len(iconBytes) < headerLen {
+		return nil, 0, 0, fmt.Errorf("icon: %d bytes is too short for an .ico file", len(iconBytes))
+	}
+	if typ := binary.LittleEndian.Uint16(iconBytes[2:4]); typ != 1 {
+		return nil, 0, 0, fmt.Errorf("icon: not an .ico file (type %d)", typ)
+	}
+	count := int(binary.LittleEndian.Uint16(iconBytes[4:6]))
+	if count == 0 || len(iconBytes) < headerLen+count*entryLen {
+		return nil, 0, 0, fmt.Errorf("icon: .ico directory claims %d entries, but %d bytes only hold %d",
+			count, len(iconBytes), (len(iconBytes)-headerLen)/entryLen)
+	}
+
+	type entry struct {
+		width, height int
+		bytes, offset uint32
+	}
+	entries := make([]entry, 0, count)
+	for i := range count {
+		off := headerLen + i*entryLen
+		w, h := int(iconBytes[off]), int(iconBytes[off+1])
+		// A stored dimension of zero means 256.
+		if w == 0 {
+			w = 256
+		}
+		if h == 0 {
+			h = 256
+		}
+		entries = append(entries, entry{
+			width:  w,
+			height: h,
+			bytes:  binary.LittleEndian.Uint32(iconBytes[off+8 : off+12]),
+			offset: binary.LittleEndian.Uint32(iconBytes[off+12 : off+16]),
+		})
+	}
+
+	// Prefer an exact match; failing that the smallest entry that still covers
+	// the target, since downscaling a bigger drawing beats enlarging a smaller
+	// one; and failing that the largest entry available.
+	better := func(a, b entry) bool {
+		exact := func(e entry) bool { return e.width == target && e.height == target }
+		if exact(a) != exact(b) {
+			return exact(a)
+		}
+		covers := func(e entry) bool { return e.width >= target && e.height >= target }
+		if covers(a) != covers(b) {
+			return covers(a)
+		}
+		if covers(a) {
+			return a.width*a.height < b.width*b.height
+		}
+		return a.width*a.height > b.width*b.height
+	}
+	best := entries[0]
+	for _, e := range entries[1:] {
+		if better(e, best) {
+			best = e
+		}
+	}
+
+	end := int(best.offset) + int(best.bytes)
+	if best.bytes == 0 || end > len(iconBytes) {
+		return nil, 0, 0, fmt.Errorf("icon: .ico entry lies outside the file (offset %d, %d bytes, file %d bytes)",
+			best.offset, best.bytes, len(iconBytes))
+	}
+	bits := make([]byte, best.bytes)
+	copy(bits, iconBytes[best.offset:end])
+	return bits, best.width, best.height, nil
+}
+
 func (t *winTray) iconToBitmap(hIcon windows.Handle) (windows.Handle, error) {
+	cx, _, _ := pGetSystemMetrics.Call(SM_CXSMICON)
+	cy, _, _ := pGetSystemMetrics.Call(SM_CYSMICON)
+	w, h := int(cx), int(cy)
+
 	hDC, _, err := pGetDC.Call(uintptr(0))
 	if hDC == 0 {
 		return 0, err
 	}
 	defer pReleaseDC.Call(uintptr(0), hDC)
+
+	// A 32-bit top-down DIB, so that the alpha channel is ours to write. A menu
+	// blends a bitmap item against its alpha; a compatible bitmap has none, and
+	// the black that transparent pixels are stored as reaches the menu instead.
+	bmi := bitmapInfo{header: bitmapInfoHeader{
+		size:        uint32(unsafe.Sizeof(bitmapInfoHeader{})),
+		width:       int32(w),
+		height:      -int32(h), // negative: rows run from the top down
+		planes:      1,
+		bitCount:    32,
+		compression: biRGB,
+	}}
+	var pixels *byte
+	hBmp, _, callErr := pCreateDIBSection.Call(hDC, uintptr(unsafe.Pointer(&bmi)), dibRGBColors, uintptr(unsafe.Pointer(&pixels)), 0, 0)
+	if hBmp == 0 || pixels == nil {
+		return 0, callError(callErr, "CreateDIBSection failed")
+	}
+	dst := unsafe.Slice(pixels, w*h*4)
+
+	// An icon that carries its own alpha is copied from its colour bitmap:
+	// DrawIconEx does not write the alpha channel, so drawing it would throw the
+	// transparency away.
+	if src, sw, sh, ok := iconColorPixels(hDC, hIcon); ok {
+		scaleBGRA(src, sw, sh, dst, w, h)
+		premultiplyAlpha(dst)
+		return windows.Handle(hBmp), nil
+	}
+
+	// Otherwise the AND mask is the only transparency an icon has: draw the
+	// colour and derive alpha from the mask.
 	hMemDC, _, err := pCreateCompatibleDC.Call(hDC)
 	if hMemDC == 0 {
-		return 0, err
+		pDeleteObject.Call(hBmp)
+		return 0, callError(err, "CreateCompatibleDC failed")
 	}
 	defer pDeleteDC.Call(hMemDC)
-	cx, _, _ := pGetSystemMetrics.Call(SM_CXSMICON)
-	cy, _, _ := pGetSystemMetrics.Call(SM_CYSMICON)
-	hMemBmp, _, err := pCreateCompatibleBitmap.Call(hDC, cx, cy)
-	if hMemBmp == 0 {
-		return 0, err
-	}
-	hOriginalBmp, _, _ := pSelectObject.Call(hMemDC, hMemBmp)
+	hOriginalBmp, _, _ := pSelectObject.Call(hMemDC, hBmp)
 	defer pSelectObject.Call(hMemDC, hOriginalBmp)
-	res, _, err := pDrawIconEx.Call(hMemDC, 0, 0, uintptr(hIcon), cx, cy, 0, uintptr(0), DI_NORMAL)
-	if res == 0 {
-		return 0, err
+
+	if res, _, err := pDrawIconEx.Call(hMemDC, 0, 0, uintptr(hIcon), cx, cy, 0, uintptr(0), DI_NORMAL); res == 0 {
+		pDeleteObject.Call(hBmp)
+		return 0, callError(err, "DrawIconEx failed")
 	}
-	return windows.Handle(hMemBmp), nil
+	applyMaskAlpha(hDC, hIcon, dst, w, h)
+	premultiplyAlpha(dst)
+	return windows.Handle(hBmp), nil
+}
+
+// bitmapInfoHeader and bitmapInfo describe pixels handed to, or asked of, GDI.
+type bitmapInfoHeader struct {
+	size          uint32
+	width, height int32
+	planes        uint16
+	bitCount      uint16
+	compression   uint32
+	sizeImage     uint32
+	xPelsPerMeter int32
+	yPelsPerMeter int32
+	clrUsed       uint32
+	clrImportant  uint32
+}
+
+type bitmapInfo struct {
+	header bitmapInfoHeader
+	colors [3]uint32 // a palette for indexed formats, unused by BI_RGB
+}
+
+// bitmap mirrors the Windows BITMAP struct, which GetObject fills in.
+type bitmap struct {
+	typ        int32
+	width      int32
+	height     int32
+	widthBytes int32
+	planes     uint16
+	bitsPixel  uint16
+	bits       uintptr
+}
+
+// iconInfo mirrors the Windows ICONINFO struct. The two bitmaps it hands back
+// are copies the caller owns and has to delete.
+type iconInfo struct {
+	fIcon    int32
+	xHotspot uint32
+	yHotspot uint32
+	hbmMask  windows.Handle
+	hbmColor windows.Handle
+}
+
+// iconColorPixels returns an icon's own pixels, top-down, when its colour bitmap
+// is 32 bits and therefore carries an alpha channel.
+func iconColorPixels(hDC uintptr, hIcon windows.Handle) ([]byte, int, int, bool) {
+	var ii iconInfo
+	if r, _, _ := pGetIconInfo.Call(uintptr(hIcon), uintptr(unsafe.Pointer(&ii))); r == 0 {
+		return nil, 0, 0, false
+	}
+	defer deleteIconInfo(&ii)
+
+	var bm bitmap
+	if r, _, _ := pGetObject.Call(uintptr(ii.hbmColor), unsafe.Sizeof(bm), uintptr(unsafe.Pointer(&bm))); r == 0 {
+		return nil, 0, 0, false
+	}
+	if bm.bitsPixel != 32 || bm.width <= 0 || bm.height <= 0 {
+		return nil, 0, 0, false
+	}
+	w, h := int(bm.width), int(bm.height)
+
+	bmi := bitmapInfo{header: bitmapInfoHeader{
+		size:        uint32(unsafe.Sizeof(bitmapInfoHeader{})),
+		width:       int32(w),
+		height:      -int32(h),
+		planes:      1,
+		bitCount:    32,
+		compression: biRGB,
+	}}
+	data := make([]byte, w*h*4)
+	if r, _, _ := pGetDIBits.Call(hDC, uintptr(ii.hbmColor), 0, uintptr(h), uintptr(unsafe.Pointer(&data[0])), uintptr(unsafe.Pointer(&bmi)), dibRGBColors); r == 0 {
+		return nil, 0, 0, false
+	}
+	return data, w, h, true
+}
+
+// scaleBGRA copies source pixels into the destination, taking the nearest pixel
+// when the sizes differ. The alpha byte travels with the colour, which is the
+// point of going through the colour bitmap at all.
+func scaleBGRA(src []byte, sw, sh int, dst []byte, dw, dh int) {
+	if sw == dw && sh == dh {
+		copy(dst, src)
+		return
+	}
+	for y := 0; y < dh; y++ {
+		sy := y * sh / dh
+		for x := 0; x < dw; x++ {
+			sx := x * sw / dw
+			so := (sy*sw + sx) * 4
+			do := (y*dw + x) * 4
+			copy(dst[do:do+4], src[so:so+4])
+		}
+	}
+}
+
+// premultiplyAlpha scales each colour channel by its alpha. An icon stores
+// straight alpha, but a menu blends an item bitmap as though it were
+// premultiplied: a semi-transparent edge pixel would otherwise contribute its
+// full colour and leave a halo around the icon. Nothing else wants premultiplied
+// pixels, so this is done here, on the bitmap the menu takes, and not on the
+// icon the shell takes.
+func premultiplyAlpha(pixels []byte) {
+	for i := 0; i+3 < len(pixels); i += 4 {
+		a := uint32(pixels[i+3])
+		switch {
+		case a == 0:
+			pixels[i], pixels[i+1], pixels[i+2] = 0, 0, 0
+		case a < 255:
+			pixels[i] = byte(uint32(pixels[i]) * a / 255)
+			pixels[i+1] = byte(uint32(pixels[i+1]) * a / 255)
+			pixels[i+2] = byte(uint32(pixels[i+2]) * a / 255)
+		}
+	}
+}
+
+// applyMaskAlpha sets the alpha channel from the icon's AND mask, where a set bit
+// means the pixel is transparent.
+func applyMaskAlpha(hDC uintptr, hIcon windows.Handle, pixels []byte, w, h int) {
+	var ii iconInfo
+	if r, _, _ := pGetIconInfo.Call(uintptr(hIcon), uintptr(unsafe.Pointer(&ii))); r == 0 {
+		return
+	}
+	defer deleteIconInfo(&ii)
+
+	// The mask holds one bit per pixel; GDI hands it back one byte per pixel.
+	bmi := bitmapInfo{header: bitmapInfoHeader{
+		size:        uint32(unsafe.Sizeof(bitmapInfoHeader{})),
+		width:       int32(w),
+		height:      -int32(h),
+		planes:      1,
+		bitCount:    8,
+		compression: biRGB,
+	}}
+	mask := make([]byte, w*h)
+	if r, _, _ := pGetDIBits.Call(hDC, uintptr(ii.hbmMask), 0, uintptr(h), uintptr(unsafe.Pointer(&mask[0])), uintptr(unsafe.Pointer(&bmi)), dibRGBColors); r == 0 {
+		return
+	}
+	for i := 0; i < w*h; i++ {
+		if mask[i] != 0 {
+			pixels[i*4+3] = 0
+		} else {
+			pixels[i*4+3] = 255
+		}
+	}
+}
+
+// deleteIconInfo releases the bitmaps GetIconInfo created.
+func deleteIconInfo(ii *iconInfo) {
+	if ii.hbmColor != 0 {
+		pDeleteObject.Call(uintptr(ii.hbmColor))
+	}
+	if ii.hbmMask != 0 {
+		pDeleteObject.Call(uintptr(ii.hbmMask))
+	}
 }
 
 func registerSystray() {
@@ -857,7 +1135,6 @@ func nativeLoop() {
 }
 
 func quit() {
-
 	pPostMessage.Call(
 		uintptr(wt.window),
 		WM_CLOSE,
@@ -866,31 +1143,12 @@ func quit() {
 	)
 }
 
-func iconBytesToFilePath(iconBytes []byte) (string, error) {
-	bh := md5.Sum(iconBytes)
-	dataHash := hex.EncodeToString(bh[:])
-	iconFilePath := filepath.Join(os.TempDir(), "systray_temp_icon_"+dataHash)
-
-	if _, err := os.Stat(iconFilePath); errors.Is(err, fs.ErrNotExist) {
-		if err := os.WriteFile(iconFilePath, iconBytes, 0644); err != nil {
-			return "", err
-		}
-	}
-	return iconFilePath, nil
-}
-
 // SetIcon sets the systray icon.
 // iconBytes should be the content of .ico for windows and .ico/.jpg/.png
 // for other platforms.
 func SetIcon(iconBytes []byte) {
-	iconFilePath, err := iconBytesToFilePath(iconBytes)
-	if err != nil {
-		logError("unable to write icon data to temp file", "error", err)
-		return
-	}
-	if err := wt.setIcon(iconFilePath); err != nil {
+	if err := wt.setIcon(iconBytes); err != nil {
 		logError("unable to set icon", "error", err)
-		return
 	}
 }
 
@@ -917,15 +1175,9 @@ func (item *MenuItem) parentId() uint32 {
 // SetIcon sets the icon of a menu item. Only works on macOS and Windows.
 // iconBytes should be the content of .ico/.jpg/.png
 func (item *MenuItem) SetIcon(iconBytes []byte) {
-	iconFilePath, err := iconBytesToFilePath(iconBytes)
+	h, err := wt.iconFromBytes(iconBytes)
 	if err != nil {
-		logError("unable to write icon data to temp file", "error", err)
-		return
-	}
-
-	h, err := wt.loadIconFrom(iconFilePath)
-	if err != nil {
-		logError("unable to load icon from temp file", "error", err)
+		logError("unable to load icon", "error", err)
 		return
 	}
 
