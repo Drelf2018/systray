@@ -359,6 +359,9 @@ func (t *winTray) initInstance() error {
 	res, _, err := pRegisterWindowMessage.Call(
 		uintptr(unsafe.Pointer(taskbarEventNamePtr)),
 	)
+	if res == 0 {
+		return callError(err, "RegisterWindowMessage(TaskbarCreated) failed")
+	}
 	t.wmTaskbarCreated = uint32(res)
 
 	t.loadedImages = make(map[string]windows.Handle)
@@ -569,6 +572,11 @@ func (t *winTray) addOrUpdateMenuItem(menuItemId uint32, parentId uint32, title 
 			0,
 			uintptr(unsafe.Pointer(&mi)),
 		)
+		// A failed update is not a missing item: report it here rather than
+		// fall through to the branch below, which would try to create it.
+		if res == 0 {
+			return callError(err, fmt.Sprintf("update menu item %d: SetMenuItemInfo failed", menuItemId))
+		}
 	}
 
 	if res == 0 {
@@ -635,10 +643,19 @@ func (t *winTray) addSeparatorMenuItem(menuItemId, parentId uint32) error {
 	return nil
 }
 
+// callError reports a failed Windows call. Not every failing call sets the last
+// error: a zero errno only means Windows left the value untouched, and reporting
+// it as-is would read "The operation completed successfully".
+func callError(err error, fallback string) error {
+	if errno, ok := err.(syscall.Errno); ok && errno != 0 {
+		return err
+	}
+	return errors.New("systray: " + fallback)
+}
+
 func (t *winTray) hideMenuItem(menuItemId, parentId uint32) error {
 	// https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-removemenu
 	const MF_BYCOMMAND = 0x00000000
-	const ERROR_SUCCESS syscall.Errno = 0
 
 	t.muMenus.RLock()
 	menu := uintptr(t.menus[parentId])
@@ -649,14 +666,7 @@ func (t *winTray) hideMenuItem(menuItemId, parentId uint32) error {
 		MF_BYCOMMAND,
 	)
 	if res == 0 {
-		// RemoveMenu reports failure through its return value, but it does not
-		// always set the last error: a zero errno only means Windows left the
-		// value untouched, and reporting it would read "The operation completed
-		// successfully". Silence is not an option either, so name the item.
-		if errno, ok := err.(syscall.Errno); ok && errno != ERROR_SUCCESS {
-			return err
-		}
-		return fmt.Errorf("systray: hide menu item %d: no such item", menuItemId)
+		return callError(err, fmt.Sprintf("hide menu item %d: no such item", menuItemId))
 	}
 	t.delFromVisibleItems(parentId, menuItemId)
 
