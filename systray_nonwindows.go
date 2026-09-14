@@ -109,9 +109,17 @@ func systray_menu_item_selected(cID C.int) {
 	systrayMenuItemSelected(uint32(cID))
 }
 
-// nativeIconFormat reports whether data of the given format can be handed to the
+// iconSize is the edge, in pixels, at which a vector icon is rasterized.
+//
+// Neither back-end needs a number from us: systray_darwin.m hands the image to
+// AppKit as 16pt and lets it scale, and on Linux the bytes reach
+// app_indicator_set_icon_full, which gdk-pixbuf scales to the panel. 32 covers a
+// 16pt icon at 2x.
+func iconSize() int { return 32 }
+
+// isNativeIconFormat reports whether data of the given format can be handed to the
 // native back-end as it is. PNG, JPEG and ICO all can.
-func nativeIconFormat(format string) bool {
+func isNativeIconFormat(format string) bool {
 	switch format {
 	case "png", "jpeg", "ico":
 		return true

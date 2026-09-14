@@ -19,6 +19,88 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// System metrics and DrawIconEx flags used to size and draw the tray icon.
+const (
+	// SM_CXSMICON and SM_CYSMICON are the small-icon metrics, which is what the
+	// notification area draws. They follow the display scale factor, so they have
+	// to be read rather than assumed.
+	SM_CXSMICON = 49
+	SM_CYSMICON = 50
+
+	// DI_NORMAL draws the icon together with its mask.
+	DI_NORMAL = 0x3
+)
+
+// Shell_NotifyIcon
+const (
+	NIM_ADD    = 0x00000000
+	NIM_MODIFY = 0x00000001
+	NIM_DELETE = 0x00000002
+
+	NIF_MESSAGE = 0x00000001
+	NIF_ICON    = 0x00000002
+	NIF_TIP     = 0x00000004
+)
+
+// Window messages
+const (
+	WM_USER       = 0x0400
+	WM_COMMAND    = 0x0111
+	WM_ENDSESSION = 0x0016
+	WM_CLOSE      = 0x0010
+	WM_DESTROY    = 0x0002
+	WM_LBUTTONUP  = 0x0202
+	WM_RBUTTONUP  = 0x0205
+)
+
+// Styles and identifiers for the hidden window the tray lives in
+const (
+	IDI_APPLICATION = 32512
+	IDC_ARROW       = 32512 // Standard arrow
+	SW_HIDE         = 0
+	CW_USEDEFAULT   = 0x80000000
+	CS_HREDRAW      = 0x0002
+	CS_VREDRAW      = 0x0001
+
+	WS_OVERLAPPED       = 0x00000000
+	WS_CAPTION          = 0x00C00000
+	WS_MAXIMIZEBOX      = 0x00010000
+	WS_MINIMIZEBOX      = 0x00020000
+	WS_SYSMENU          = 0x00080000
+	WS_THICKFRAME       = 0x00040000
+	WS_OVERLAPPEDWINDOW = WS_OVERLAPPED
+)
+
+// Menus
+const (
+	MIM_APPLYTOSUBMENUS = 0x80000000 // Settings apply to the menu and all of its submenus
+
+	MIIM_STATE   = 0x00000001
+	MIIM_ID      = 0x00000002
+	MIIM_SUBMENU = 0x00000004
+	MIIM_STRING  = 0x00000040
+	MIIM_BITMAP  = 0x00000080
+	MIIM_FTYPE   = 0x00000100
+
+	MFT_STRING    = 0x00000000
+	MFT_SEPARATOR = 0x00000800
+
+	MFS_CHECKED  = 0x00000008
+	MFS_DISABLED = 0x00000003
+
+	MF_BYCOMMAND = 0x00000000
+
+	TPM_LEFTALIGN   = 0x0000
+	TPM_BOTTOMALIGN = 0x0020
+)
+
+// LoadImage
+const (
+	IMAGE_ICON      = 1          // Loads an icon
+	LR_LOADFROMFILE = 0x00000010 // Loads the stand-alone image from the file
+	LR_DEFAULTSIZE  = 0x00000040 // Loads default-size icon for windows(SM_CXICON x SM_CYICON) if cx, cy are set to zero
+)
+
 // Helpful sources: https://github.com/golang/exp/blob/master/shiny/driver/internal/win32
 
 var (
@@ -122,7 +204,6 @@ type notifyIconData struct {
 }
 
 func (nid *notifyIconData) add() error {
-	const NIM_ADD = 0x00000000
 	res, _, err := pShellNotifyIcon.Call(
 		uintptr(NIM_ADD),
 		uintptr(unsafe.Pointer(nid)),
@@ -134,7 +215,6 @@ func (nid *notifyIconData) add() error {
 }
 
 func (nid *notifyIconData) modify() error {
-	const NIM_MODIFY = 0x00000001
 	res, _, err := pShellNotifyIcon.Call(
 		uintptr(NIM_MODIFY),
 		uintptr(unsafe.Pointer(nid)),
@@ -146,7 +226,6 @@ func (nid *notifyIconData) modify() error {
 }
 
 func (nid *notifyIconData) delete() error {
-	const NIM_DELETE = 0x00000002
 	res, _, err := pShellNotifyIcon.Call(
 		uintptr(NIM_DELETE),
 		uintptr(unsafe.Pointer(nid)),
@@ -210,7 +289,6 @@ type winTray struct {
 // Loads an image from file and shows it in tray.
 // Shell_NotifyIcon: https://msdn.microsoft.com/en-us/library/windows/desktop/bb762159(v=vs.85).aspx
 func (t *winTray) setIcon(src string) error {
-	const NIF_ICON = 0x00000002
 
 	h, err := t.loadIconFrom(src)
 	if err != nil {
@@ -229,7 +307,6 @@ func (t *winTray) setIcon(src string) error {
 // Sets tooltip on icon.
 // Shell_NotifyIcon: https://msdn.microsoft.com/en-us/library/windows/desktop/bb762159(v=vs.85).aspx
 func (t *winTray) setTooltip(src string) error {
-	const NIF_TIP = 0x00000004
 	b, err := windows.UTF16FromString(src)
 	if err != nil {
 		return err
@@ -256,14 +333,6 @@ var (
 // WindowProc callback function that processes messages sent to a window.
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ms633573(v=vs.85).aspx
 func (t *winTray) wndProc(hWnd windows.Handle, message uint32, wParam, lParam uintptr) (lResult uintptr) {
-	const (
-		WM_RBUTTONUP  = 0x0205
-		WM_LBUTTONUP  = 0x0202
-		WM_COMMAND    = 0x0111
-		WM_ENDSESSION = 0x0016
-		WM_CLOSE      = 0x0010
-		WM_DESTROY    = 0x0002
-	)
 	switch message {
 	case WM_COMMAND:
 		menuItemId := int32(wParam)
@@ -317,36 +386,11 @@ func (t *winTray) wndProc(hWnd windows.Handle, message uint32, wParam, lParam ui
 }
 
 func (t *winTray) initInstance() error {
-	const IDI_APPLICATION = 32512
-	const IDC_ARROW = 32512 // Standard arrow
 	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms633548(v=vs.85).aspx
-	const SW_HIDE = 0
-	const CW_USEDEFAULT = 0x80000000
 	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms632600(v=vs.85).aspx
-	const (
-		WS_CAPTION     = 0x00C00000
-		WS_MAXIMIZEBOX = 0x00010000
-		WS_MINIMIZEBOX = 0x00020000
-		WS_OVERLAPPED  = 0x00000000
-		WS_SYSMENU     = 0x00080000
-		WS_THICKFRAME  = 0x00040000
-
-		WS_OVERLAPPEDWINDOW = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
-	)
 	// https://msdn.microsoft.com/en-us/library/windows/desktop/ff729176
-	const (
-		CS_HREDRAW = 0x0002
-		CS_VREDRAW = 0x0001
-	)
-	const NIF_MESSAGE = 0x00000001
 
 	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms644931(v=vs.85).aspx
-	const WM_USER = 0x0400
-
-	const (
-		className  = "SystrayClass"
-		windowName = ""
-	)
 
 	t.wmSystrayMessage = WM_USER + 1
 	t.visibleItems = make(map[uint32][]uint32)
@@ -386,12 +430,12 @@ func (t *winTray) initInstance() error {
 	}
 	t.cursor = windows.Handle(cursorHandle)
 
-	classNamePtr, err := windows.UTF16PtrFromString(className)
+	classNamePtr, err := windows.UTF16PtrFromString("SystrayClass")
 	if err != nil {
 		return err
 	}
 
-	windowNamePtr, err := windows.UTF16PtrFromString(windowName)
+	windowNamePtr, err := windows.UTF16PtrFromString("") // never shown, so it carries no title
 	if err != nil {
 		return err
 	}
@@ -452,7 +496,6 @@ func (t *winTray) initInstance() error {
 }
 
 func (t *winTray) createMenu() error {
-	const MIM_APPLYTOSUBMENUS = 0x80000000 // Settings apply to the menu and all of its submenus
 
 	menuHandle, _, err := pCreatePopupMenu.Call()
 	if menuHandle == 0 {
@@ -482,7 +525,6 @@ func (t *winTray) createMenu() error {
 }
 
 func (t *winTray) convertToSubMenu(menuItemId uint32) (windows.Handle, error) {
-	const MIIM_SUBMENU = 0x00000004
 
 	res, _, err := pCreateMenu.Call()
 	if res == 0 {
@@ -512,19 +554,6 @@ func (t *winTray) convertToSubMenu(menuItemId uint32) (windows.Handle, error) {
 
 func (t *winTray) addOrUpdateMenuItem(menuItemId uint32, parentId uint32, title string, disabled, checked bool) error {
 	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms647578(v=vs.85).aspx
-	const (
-		MIIM_FTYPE   = 0x00000100
-		MIIM_BITMAP  = 0x00000080
-		MIIM_STRING  = 0x00000040
-		MIIM_SUBMENU = 0x00000004
-		MIIM_ID      = 0x00000002
-		MIIM_STATE   = 0x00000001
-	)
-	const MFT_STRING = 0x00000000
-	const (
-		MFS_CHECKED  = 0x00000008
-		MFS_DISABLED = 0x00000003
-	)
 	titlePtr, err := windows.UTF16PtrFromString(title)
 	if err != nil {
 		return err
@@ -610,12 +639,6 @@ func (t *winTray) addOrUpdateMenuItem(menuItemId uint32, parentId uint32, title 
 
 func (t *winTray) addSeparatorMenuItem(menuItemId, parentId uint32) error {
 	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms647578(v=vs.85).aspx
-	const (
-		MIIM_FTYPE = 0x00000100
-		MIIM_ID    = 0x00000002
-		MIIM_STATE = 0x00000001
-	)
-	const MFT_SEPARATOR = 0x00000800
 
 	mi := menuItemInfo{
 		Mask: MIIM_FTYPE | MIIM_ID | MIIM_STATE,
@@ -655,7 +678,6 @@ func callError(err error, fallback string) error {
 
 func (t *winTray) hideMenuItem(menuItemId, parentId uint32) error {
 	// https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-removemenu
-	const MF_BYCOMMAND = 0x00000000
 
 	t.muMenus.RLock()
 	menu := uintptr(t.menus[parentId])
@@ -674,10 +696,6 @@ func (t *winTray) hideMenuItem(menuItemId, parentId uint32) error {
 }
 
 func (t *winTray) showMenu() error {
-	const (
-		TPM_BOTTOMALIGN = 0x0020
-		TPM_LEFTALIGN   = 0x0000
-	)
 	p := point{}
 	res, _, err := pGetCursorPos.Call(uintptr(unsafe.Pointer(&p)))
 	if res == 0 {
@@ -739,9 +757,6 @@ func (t *winTray) getVisibleItemIndex(parent, val uint32) int {
 // Loads an image from file to be shown in tray or menu item.
 // LoadImage: https://msdn.microsoft.com/en-us/library/windows/desktop/ms648045(v=vs.85).aspx
 func (t *winTray) loadIconFrom(src string) (windows.Handle, error) {
-	const IMAGE_ICON = 1               // Loads an icon
-	const LR_LOADFROMFILE = 0x00000010 // Loads the stand-alone image from the file
-	const LR_DEFAULTSIZE = 0x00000040  // Loads default-size icon for windows(SM_CXICON x SM_CYICON) if cx, cy are set to zero
 
 	// Save and reuse handles of loaded images
 	t.muLoadedImages.RLock()
@@ -772,9 +787,6 @@ func (t *winTray) loadIconFrom(src string) (windows.Handle, error) {
 }
 
 func (t *winTray) iconToBitmap(hIcon windows.Handle) (windows.Handle, error) {
-	const SM_CXSMICON = 49
-	const SM_CYSMICON = 50
-	const DI_NORMAL = 0x3
 	hDC, _, err := pGetDC.Call(uintptr(0))
 	if hDC == 0 {
 		return 0, err
@@ -845,7 +857,6 @@ func nativeLoop() {
 }
 
 func quit() {
-	const WM_CLOSE = 0x0010
 
 	pPostMessage.Call(
 		uintptr(wt.window),
@@ -994,14 +1005,22 @@ func showMenuItem(item *MenuItem) {
 	addOrUpdateMenuItem(item)
 }
 
-// nativeIconFormat reports whether data of the given format can be handed to the
+// iconSize is the edge, in pixels, at which a vector icon is rasterized.
+func iconSize() int {
+	if cx, _, _ := pGetSystemMetrics.Call(SM_CXSMICON); cx > 0 {
+		return int(cx)
+	}
+	return 32
+}
+
+// isNativeIconFormat reports whether data of the given format can be handed to the
 // Windows back-end as it is. Only .ico can: LoadImage reads no other image format
 // off disk.
 //
 // Handing an .ico over untouched has a second benefit: decoding and re-encoding
 // one would flatten it to a single entry, discarding any extra sizes the caller
 // packed into it.
-func nativeIconFormat(format string) bool {
+func isNativeIconFormat(format string) bool {
 	return format == "ico"
 }
 
