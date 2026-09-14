@@ -17,6 +17,10 @@ import (
 // templateIconBytes and regularIconBytes should be the content of .ico for windows and
 // .ico/.jpg/.png for other platforms.
 func SetTemplateIcon(templateIconBytes []byte, regularIconBytes []byte) {
+	if err := checkIcon(templateIconBytes); err != nil {
+		logError("unable to set icon", "error", err)
+		return
+	}
 	cstr := (*C.char)(unsafe.Pointer(&templateIconBytes[0]))
 	C.setIcon(cstr, (C.int)(len(templateIconBytes)), true)
 }
@@ -24,6 +28,10 @@ func SetTemplateIcon(templateIconBytes []byte, regularIconBytes []byte) {
 // SetIcon sets the icon of a menu item. Only works on macOS and Windows.
 // iconBytes should be the content of .ico/.jpg/.png
 func (item *MenuItem) SetIcon(iconBytes []byte) {
+	if err := checkIcon(iconBytes); err != nil {
+		logError("unable to load icon", "error", err)
+		return
+	}
 	cstr := (*C.char)(unsafe.Pointer(&iconBytes[0]))
 	C.setMenuItemIcon(cstr, (C.int)(len(iconBytes)), C.int(item.id), false)
 }
@@ -33,6 +41,10 @@ func (item *MenuItem) SetIcon(iconBytes []byte) {
 // templateIconBytes and regularIconBytes should be the content of .ico for windows and
 // .ico/.jpg/.png for other platforms.
 func (item *MenuItem) SetTemplateIcon(templateIconBytes []byte, regularIconBytes []byte) {
+	if err := checkIcon(templateIconBytes); err != nil {
+		logError("unable to load icon", "error", err)
+		return
+	}
 	cstr := (*C.char)(unsafe.Pointer(&templateIconBytes[0]))
 	C.setMenuItemIcon(cstr, (C.int)(len(templateIconBytes)), C.int(item.id), true)
 }

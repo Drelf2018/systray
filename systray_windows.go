@@ -1217,6 +1217,7 @@ func (item *MenuItem) SetIcon(iconBytes []byte) {
 		return
 	}
 	wt.muMenuItemIcons.Lock()
+	replaced := wt.menuItemIcons[uint32(item.id)]
 	wt.menuItemIcons[uint32(item.id)] = h
 	wt.muMenuItemIcons.Unlock()
 
@@ -1224,6 +1225,12 @@ func (item *MenuItem) SetIcon(iconBytes []byte) {
 	if err != nil {
 		logError("unable to add or update menu item", "error", err)
 		return
+	}
+	if replaced != 0 {
+		// iconToBitmap hands back a fresh DIB section on every call, so the
+		// handle the menu carried until a moment ago is nobody's now: without
+		// this, every icon change would leak one DIB section.
+		pDeleteObject.Call(uintptr(replaced))
 	}
 }
 

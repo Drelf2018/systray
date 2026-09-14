@@ -7,11 +7,20 @@ import "C"
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
 	"unsafe"
 )
+
+// The back-ends take ownership of every string handed to them as a char*, and
+// free it once they have copied what they need: setTitle and setTooltip free at
+// once, in both systray_darwin.m and systray_linux.c, and
+// add_or_update_menu_item passes its two strings to the GTK main loop, which
+// frees them when it consumes the item it queued (do_add_or_update_menu_item).
+// The C.CString calls below are deliberately left alone: freeing them here as
+// well would be a double free.
 
 func registerSystray() {
 	C.registerSystray()
@@ -25,23 +34,42 @@ func quit() {
 	C.quit()
 }
 
+// errEmptyIcon is what the back-ends report when they are handed an icon of no
+// bytes.
+var errEmptyIcon = errors.New("icon: empty")
+
+// checkIcon reports whether iconBytes are worth handing to the back-end. An
+// empty slice would panic on the address of its first element, and a nil
+// pointer passed in its place would clear the icon already on screen, so the
+// call is dropped with a log line instead.
+func checkIcon(iconBytes []byte) error {
+	if len(iconBytes) == 0 {
+		return errEmptyIcon
+	}
+	return nil
+}
+
 // SetIcon sets the systray icon.
 // iconBytes should be the content of .ico for windows and .ico/.jpg/.png
-// for other platforms.
+// for other platforms. An empty icon is ignored.
 func SetIcon(iconBytes []byte) {
+	if err := checkIcon(iconBytes); err != nil {
+		logError("unable to set icon", "error", err)
+		return
+	}
 	cstr := (*C.char)(unsafe.Pointer(&iconBytes[0]))
 	C.setIcon(cstr, (C.int)(len(iconBytes)), false)
 }
 
 // SetTitle sets the systray title, only available on Mac and Linux.
 func SetTitle(title string) {
-	C.setTitle(C.CString(title))
+	C.setTitle(C.CString(title)) // the back-end frees this
 }
 
 // SetTooltip sets the systray tooltip to display on mouse hover of the tray icon,
 // only available on Mac and Windows.
 func SetTooltip(tooltip string) {
-	C.setTooltip(C.CString(tooltip))
+	C.setTooltip(C.CString(tooltip)) // the back-end frees this
 }
 
 // SetOnLeftClick sets a callback to be invoked when the tray icon is left-clicked.
@@ -67,6 +95,7 @@ func addOrUpdateMenuItem(item *MenuItem) {
 	if item.parent != nil {
 		parentID = item.parent.id
 	}
+	// Both strings belong to the back-end from here; it frees them.
 	C.add_or_update_menu_item(
 		C.int(item.id),
 		C.int(parentID),

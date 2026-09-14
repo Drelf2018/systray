@@ -182,6 +182,7 @@ gboolean do_add_separator(gpointer data) {
 	GtkWidget *separator = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(global_tray_menu), separator);
 	gtk_widget_show(separator);
+	free(data);
 	return FALSE;
 }
 
@@ -196,6 +197,7 @@ gboolean do_hide_menu_item(gpointer data) {
 			break;
 		}
 	}
+	free(mii);
 	return FALSE;
 }
 
@@ -210,6 +212,7 @@ gboolean do_show_menu_item(gpointer data) {
 			break;
 		}
 	}
+	free(mii);
 	return FALSE;
 }
 
