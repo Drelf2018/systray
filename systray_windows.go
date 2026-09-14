@@ -1143,6 +1143,36 @@ func quit() {
 	)
 }
 
+// This entry point is only needed by EnableDPIAwareness, so it is declared next
+// to its user rather than in the list of the other User32 calls above, where
+// its longer name would re-align every line.
+var pSetProcessDpiAwarenessContext = u32.NewProc("SetProcessDpiAwarenessContext")
+
+// EnableDPIAwareness tells Windows that this process understands scaled displays,
+// which is what makes the icon metric the size the icon is actually drawn at: an
+// unaware process is told 16 pixels where a 150% display draws 24, so a vector
+// icon would be rasterized too small and the shell would stretch it.
+//
+// Call it before the first window exists. Note what it changes: Windows stops
+// bitmap-stretching this application's windows and hands out physical pixels
+// instead, which an interface with hand-placed pixel layouts may not be ready
+// for. That is why systray does not do this on its own.
+//
+// A process that already has a mode of its own — from a manifest, from a UI
+// toolkit, or from an earlier call — is refused by Windows, and that refusal is
+// reported as success, since the process is aware either way.
+func EnableDPIAwareness() error {
+	perMonitorAwareV2 := ^uintptr(3) // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+	res, _, callErr := pSetProcessDpiAwarenessContext.Call(perMonitorAwareV2)
+	if res != 0 {
+		return nil
+	}
+	if errno, ok := callErr.(syscall.Errno); ok && errno == windows.ERROR_ACCESS_DENIED {
+		return nil
+	}
+	return callError(callErr, "SetProcessDpiAwarenessContext failed")
+}
+
 // SetIcon sets the systray icon.
 // iconBytes should be the content of .ico for windows and .ico/.jpg/.png
 // for other platforms.
@@ -1258,6 +1288,10 @@ func showMenuItem(item *MenuItem) {
 }
 
 // iconSize is the edge, in pixels, at which a vector icon is rasterized.
+//
+// The notification area draws SM_CXSMICON pixels, and that metric follows the
+// display scale factor. It only reports the scaled value to a process that has
+// declared itself DPI aware; see the example for what the host has to do.
 func iconSize() int {
 	if cx, _, _ := pGetSystemMetrics.Call(SM_CXSMICON); cx > 0 {
 		return int(cx)

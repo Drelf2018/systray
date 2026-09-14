@@ -135,3 +135,7 @@ func encodeIcon(img image.Image) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+// EnableDPIAwareness is a no-op outside Windows: scaled displays are the
+// platform's own business there, and systray reads no desktop metric.
+func EnableDPIAwareness() error { return nil }
