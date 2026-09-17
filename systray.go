@@ -15,8 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	svg "github.com/Drelf2018/exp/svg" // named import: init registers the format all the same, and DecodeSize is reachable
-	_ "github.com/biessek/golang-ico"  // registers the "ico" format with the image package
+	"github.com/Drelf2018/oksvg/svg"
+	_ "github.com/biessek/golang-ico"
 	_ "golang.org/x/image/bmp"
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
@@ -264,26 +264,28 @@ func systrayMenuItemSelected(id uint32) {
 // result can be handed straight to SetIcon.
 //
 // Data already in a format the back-end reads natively — .ico on Windows, and
-// .png, .jpeg or .ico elsewhere — is passed through untouched: it is not decoded,
-// re-encoded or resized on the way in. Anything else is decoded and re-encoded;
-// isNativeIconFormat and encodeIcon spell out the per-platform rules.
+// .png, .jpeg or .ico elsewhere — comes back as it went in: those bytes are
+// never re-encoded or resized. The data is decoded first, because the decoder is
+// what names the format, but it is the original bytes that are returned.
+// Anything else is decoded and re-encoded; isNativeIconFormat and encodeIcon
+// spell out the per-platform rules.
 //
 // Input that is not a recognizable image is reported as an error rather than as a
 // partial icon.
 func ToICON(data []byte) ([]byte, error) {
-	// The format is sniffed from the header alone. Knowing it up front is what
-	// lets the back-end's own formats skip the decode entirely, and what tells an
-	// SVG apart from a bitmap.
-	_, format, err := image.DecodeConfig(bytes.NewReader(data))
+	// The decoder names the format, which is what tells an SVG apart from a
+	// bitmap and what lets the back-end's own formats be handed back untouched.
+	// An SVG decodes to a *svg.Image, a document that has not been rasterized
+	// yet, so its size can still be chosen below.
+	img, format, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("decode icon: %w", err)
 	}
 	if isNativeIconFormat(format) {
 		return data, nil
 	}
-	var img image.Image
-	if format == "svg" {
-		// SVG support is provided by github.com/Drelf2018/exp/svg, imported above.
+	if lazy, ok := img.(*svg.Image); ok {
+		// SVG support is provided by github.com/Drelf2018/oksvg/svg, imported above.
 		// That package owns everything this file used to do by hand: viewport
 		// sizing, preserveAspectRatio, non-UTF-8 documents, and the oksvg quirks
 		// (definitions written after the elements that reference them, percentage
@@ -295,7 +297,7 @@ func ToICON(data []byte) ([]byte, error) {
 		// bitmap (worst case 4096x4096, some 64MB) and no resample.
 		//
 		// That is only correct against github.com/Drelf2018/oksvg, the maintained
-		// successor of oksvg which this module depends on through exp/svg. Upstream
+		// successor of oksvg whose svg package this file imports. Upstream
 		// oksvg treats stroke-width as device pixels and ignores the scale from
 		// viewBox to viewport: drawing a 14-unit stroke straight into a 32x32
 		// canvas yields a 14-pixel stroke — 44% of the icon — and letters turn into
@@ -304,15 +306,9 @@ func ToICON(data []byte) ([]byte, error) {
 		// upstream oksvg without restoring the intrinsic-size-plus-downscale path:
 		// the icons would blob again.
 		n := iconSize()
-		img, err = svg.DecodeSize(bytes.NewReader(data), n, n)
-	} else {
-		// Bitmaps are decoded as they are: the caller picked their size, and a
-		// larger source is what lets the platform scale a crisp icon on high-DPI
-		// displays rather than enlarging a small one.
-		img, _, err = image.Decode(bytes.NewReader(data))
-	}
-	if err != nil {
-		return nil, fmt.Errorf("decode icon: %w", err)
+		if err := lazy.Resize(n, n); err != nil {
+			return nil, fmt.Errorf("decode icon: %w", err)
+		}
 	}
 	return encodeIcon(img)
 }

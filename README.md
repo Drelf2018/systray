@@ -8,8 +8,8 @@
 ### 图标
 
 - 新增 **`ToICON(data []byte) ([]byte, error)`**：把任意图片字节转成当前平台能直接加载的图标格式，结果可以直接交给 `SetIcon`。
-  已经是后端原生格式的（Windows 的 `.ico`，其余平台的 `.png`/`.jpeg`/`.ico`）原样透传——不解码、不重新编码、不缩放；其余格式（PNG、JPEG、GIF、BMP、TIFF、WebP、**SVG**）解码后重新编码。认不出来的数据报错返回，不会交出一个残缺图标。
-- SVG 由 [github.com/Drelf2018/exp/svg](https://github.com/Drelf2018/exp/svg) 处理，并且**直接按平台要求的尺寸光栅化**（Windows 上即 `SM_CXSMICON`），不经过中间位图，也不做二次缩放。
+  已经是后端原生格式的（Windows 的 `.ico`，其余平台的 `.png`/`.jpeg`/`.ico`）交回的就是原样的字节——不重新编码、不缩放；其余格式（PNG、JPEG、GIF、BMP、TIFF、WebP、**SVG**）解码后重新编码。认不出来的数据报错返回，不会交出一个残缺图标。
+- SVG 由 [github.com/Drelf2018/oksvg](https://github.com/Drelf2018/oksvg) 的 `svg` 包处理：`image.Decode` 交回一个尚未光栅化的 `*svg.Image`，再按平台要求的尺寸 `Resize`（Windows 上即 `SM_CXSMICON`），因此不经过中间位图，也不做二次缩放。
 - Windows 不再落地临时文件：`.ico` 从内存中的资源位图直接构建（`CreateIconFromResourceEx`），并按 `SM_CXSMICON` 挑选最合适的一档。
 - 菜单项图标带真正的 alpha 通道（32 位自顶向下 DIB、预乘 alpha），不会再有黑底或悬停时才消失的彩边；替换图标时会释放上一张位图。
 

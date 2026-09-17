@@ -1,7 +1,5 @@
-github.com/Drelf2018/exp/svg v0.0.0-20260911182254-8047e4004d5e h1:hRwvpVQO7DXIvwgj4z7aHrhx3tfSXYVqx4tZEKrqhkA=
-github.com/Drelf2018/exp/svg v0.0.0-20260911182254-8047e4004d5e/go.mod h1:DFh5XOAh0p/kkQTB2LkZiMFqkdDejDuaLmAgqh+DuwE=
-github.com/Drelf2018/oksvg v0.0.0-20260911173151-87f915507023 h1:qOi8tW8uIExWkGCL2MOJ79wwWfdKA14QBlWvUbviYOg=
-github.com/Drelf2018/oksvg v0.0.0-20260911173151-87f915507023/go.mod h1:s7+eAIzfF4LxJGYILsrfApDWcTLzZtysdiLxq8yxxPw=
+github.com/Drelf2018/oksvg v0.0.0-20260917131324-fa2a7deddc23 h1:XP4+b1JVpSidH1Ygaxxe+KyBpcGnQ4t13aGDOuuIQIk=
+github.com/Drelf2018/oksvg v0.0.0-20260917131324-fa2a7deddc23/go.mod h1:s7+eAIzfF4LxJGYILsrfApDWcTLzZtysdiLxq8yxxPw=
 github.com/biessek/golang-ico v0.0.0-20250805151044-6d8ea19fb761 h1:7TVpSKu1j0y3bckgvUhzW88Tt5HlovF+8U9gP2TVzzo=
 github.com/biessek/golang-ico v0.0.0-20250805151044-6d8ea19fb761/go.mod h1:iRWAFbKXMMkVQyxZ1PfGlkBr1TjATx1zy2MRprV7A3Q=
 github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 h1:YLvr1eE6cdCqjOe972w/cYF+FjW34v27+9Vo5106B4M=
